@@ -1,4 +1,3 @@
-// ==== Helpers ====
 function normalizeHeader(v){ return (v??'').toString().trim(); }
 function slugId(s){ return normalizeHeader(s).toLowerCase().replace(/[^a-z0-9]+/g,'_'); }
 function parseBoolCell(val){
@@ -23,7 +22,6 @@ function extractSeasonKey(text){
 }
 let updateProgress = (c,t,p)=>{};
 
-// ==== Dynamic filters (incl. seasons & ranges) ====
 function buildDynamicFilters(data, yearSeasons, options={}){
   const excluded = new Set(options.excludedColumns||[]);
   const container = document.getElementById('dynamicFilters');
@@ -36,7 +34,6 @@ function buildDynamicFilters(data, yearSeasons, options={}){
     .filter(k=>!excluded.has(k))
     .filter(k=>!k.startsWith('_season__') && !['_lat','_lon','lat','lon'].includes(k));
 
-  // categorical dropdowns (2..50 values, not numeric)
   for(const col of cols){
     const values = Array.from(new Set(data.map(r=>(r[col]??'').toString().trim()).filter(v=>v!=='')));
     const allNumeric = values.every(v=>!isNaN(parseFloat(v.replace(',','.'))));
@@ -50,7 +47,6 @@ function buildDynamicFilters(data, yearSeasons, options={}){
     }
   }
 
-  // season checkboxes (OR)
   const seasonBox = document.createElement('div'); seasonBox.className='card';
   const seasonTitle = document.createElement('h4'); seasonTitle.textContent='Seizoenen (deelname/aangemeld)'; seasonBox.appendChild(seasonTitle);
   const seasonWrap = document.createElement('div'); seasonWrap.className='inline';
@@ -68,7 +64,6 @@ function buildDynamicFilters(data, yearSeasons, options={}){
   seasonBox.appendChild(seasonWrap); seasonBox.appendChild(hint);
   container.appendChild(seasonBox);
 
-  // numeric range filters
   const numericBox = document.createElement('div'); numericBox.className='card';
   const numTitle = document.createElement('h4'); numTitle.textContent='Range-filters (min/max)'; numericBox.appendChild(numTitle);
   const numericWrap = document.createElement('div'); numericWrap.className='filters-block';
@@ -110,7 +105,6 @@ function buildDynamicFilters(data, yearSeasons, options={}){
   };
 }
 
-// ==== seasons enrichment ====
 function deriveSeasonsAndFlags(rows){
   if(!rows.length) return {yearSeasons:[], rows};
   const headers = Object.keys(rows[0]);
@@ -137,16 +131,26 @@ function deriveSeasonsAndFlags(rows){
   return {yearSeasons: Array.from(seasons).sort((a,b)=>parseInt(a)-parseInt(b)), rows: enriched};
 }
 
-// ====== XLSX export (SheetJS) ======
-function exportXLSX(rows, filename='geocoded_export.xlsx'){
-  if(!rows.length){ alert('Geen data om te exporteren.'); return; }
-  const headers = Object.keys(rows[0]);
-  const aoa = [headers];
-  for(const r of rows){
-    aoa.push(headers.map(h=> r[h] ?? ''));
-  }
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Data');
-  XLSX.writeFile(wb, filename);
+const MODE_KEY = 'ss_mode_v1';
+function applyMode(mode){
+  if(mode==='mobile'){ document.body.classList.add('mobile'); }
+  else{ document.body.classList.remove('mobile'); }
+  localStorage.setItem(MODE_KEY, mode);
+}
+function ensureModePopup(){
+  const current = localStorage.getItem(MODE_KEY);
+  if(current==='desktop' || current==='mobile'){ applyMode(current); return; }
+  const backdrop = document.createElement('div'); backdrop.className='modal-backdrop';
+  const modal = document.createElement('div'); modal.className='modal';
+  const h = document.createElement('h3'); h.textContent='Kies je weergave';
+  const p = document.createElement('p'); p.textContent='Open de module in Desktop- of Mobile-weergave. Je keuze wordt onthouden.';
+  const actions = document.createElement('div'); actions.className='actions';
+  const bDesk = document.createElement('button'); bDesk.className='btn'; bDesk.textContent='Desktop';
+  const bMob = document.createElement('button'); bMob.className='btn btn-ghost'; bMob.textContent='Mobile';
+  actions.appendChild(bMob); actions.appendChild(bDesk);
+  modal.appendChild(h); modal.appendChild(p); modal.appendChild(actions);
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  bDesk.onclick=()=>{ applyMode('desktop'); document.body.removeChild(backdrop); };
+  bMob.onclick=()=>{ applyMode('mobile'); document.body.removeChild(backdrop); };
 }

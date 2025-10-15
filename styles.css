@@ -8,11 +8,13 @@ header{padding:16px 16px 0}
 h1{margin:0 0 8px;font-size:22px}
 .sub{margin:0;color:var(--muted)}
 .center{text-align:center}.muted{color:var(--muted)}
-.nav{display:flex;gap:12px;justify-content:center;margin-top:12px}
+.nav{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
 .btn{display:inline-block;padding:10px 14px;border-radius:12px;text-decoration:none;color:var(--text);background:linear-gradient(135deg,var(--brand),#1b2446);box-shadow:0 10px 30px rgba(0,0,0,.25)}
 .btn:hover{filter:brightness(1.08)}
+.btn-ghost{background:#0e1324;border:1px solid #26304d}
+.btn-small{padding:6px 10px;font-size:12px;border-radius:10px}
 .card{background:var(--card);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:12px}
-.container{display:grid;grid-template-columns:400px 1fr;gap:12px;padding:12px;height:100vh}
+.container{display:grid;grid-template-columns:380px 1fr;gap:12px;padding:12px;height:100vh}
 .sidebar{display:flex;flex-direction:column;gap:12px;overflow:auto}
 .controls .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
 .controls input[type="file"], .controls input[type="text"], .controls select, .controls button, .controls input[type="number"]{padding:8px 10px;border-radius:10px;border:1px solid #26304d;background:#0e1324;color:var(--text)}
@@ -36,3 +38,21 @@ canvas{background:#0e1324;border-radius:12px;padding:8px}
 .filters-block{display:flex;flex-direction:column;gap:8px}
 .inline{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .small{font-size:12px;color:var(--muted)}
+/* Mobile */
+body.mobile .container{grid-template-columns:1fr;height:auto;min-height:100vh}
+body.mobile header{padding:12px 12px 0}
+body.mobile .sidebar{order:2}
+body.mobile .main{order:1}
+body.mobile #map{height:60vh;min-height:320px}
+body.mobile .grid-2{grid-template-columns:1fr}
+body.mobile .kpis{grid-template-columns:1fr 1fr}
+body.mobile .table{max-height:none}
+/* Topbar */
+.topbar{display:flex;justify-content:space-between;align-items:center;padding:12px 12px 0;gap:8px}
+.topbar .left, .topbar .right{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+/* Modal */
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;justify-content:center;align-items:center;z-index:9999}
+.modal{background:var(--card);border:1px solid #26304d;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:18px;max-width:420px;width:90%}
+.modal h3{margin:0 0 6px}
+.modal p{margin:0 0 12px;color:var(--muted)}
+.modal .actions{display:flex;gap:10px;justify-content:flex-end}
