@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Schoolschaatsen – Dashboard</title>
+  <title>Schoolschaatsen – Dashboard (v3)</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -11,12 +11,13 @@
     <aside class="sidebar">
       <header>
         <h1>📊 Dashboard</h1>
-        <p class="sub">Upload dezelfde Excel en filter voor inzichten en trends.</p>
+        <p class="sub">Upload Excel → filters (incl. seizoenen & ranges) → kerncijfers en trends. Exporteer gefilterde set.</p>
       </header>
       <section class="card controls">
         <div class="row">
           <input type="file" id="fileInput" accept=".xlsx,.xls" />
           <button id="clearCacheBtn" type="button">Cache legen</button>
+          <button id="downloadXlsxBtn" type="button" disabled>Download Excel (filterresultaat)</button>
         </div>
         <div class="row">
           <div style="width:100%">
@@ -25,7 +26,7 @@
           </div>
         </div>
         <div class="row"><strong>Filters</strong></div>
-        <div id="dynamicFilters" class="row" style="gap:12px;flex-direction:column"></div>
+        <div id="dynamicFilters" class="filters-block"></div>
         <div class="row">
           <button id="applyFiltersBtn" type="button">Filters toepassen</button>
           <button id="resetFiltersBtn" type="button">Reset</button>
@@ -68,13 +69,14 @@
     progressBar.style.width = pct + '%';
   };
 
-  let allRows=[]; let filtered=[]; let yearKeys=[]; let filterPredicate = ()=>true;
+  let allRows=[]; let filtered=[]; let yearSeasons=[]; let filterPredicate = ()=>true;
   let lineChart=null, barChart=null;
 
   const fileInput = document.getElementById('fileInput');
   const clearCacheBtn = document.getElementById('clearCacheBtn');
   const applyFiltersBtn = document.getElementById('applyFiltersBtn');
   const resetFiltersBtn = document.getElementById('resetFiltersBtn');
+  const downloadXlsxBtn = document.getElementById('downloadXlsxBtn');
 
   const k_scholen = document.getElementById('k_scholen');
   const k_altijd = document.getElementById('k_altijd');
@@ -99,15 +101,19 @@
   }
 
   function refreshCharts(rows){
-    const series = computeYearCounts(rows, yearKeys);
+    const series = {};
+    for(const s of yearSeasons){
+      series[s] = rows.reduce((acc,r)=> acc + (r['_season__'+s]===true?1:0), 0);
+    }
     const years = Object.keys(series);
     const values = years.map(y=>series[y]);
-    const deltasObj = yoyChanges(series);
-    const deltasYears = years.slice(1);
-    const deltasVals = deltasYears.map(y=>deltasObj[y] ?? 0);
+    const deltas = {}; for(let i=1;i<years.length;i++){ deltas[years[i]] = values[i] - values[i-1]; }
+    const deltaYears = years.slice(1);
+    const deltaVals = deltaYears.map(y=>deltas[y]??0);
 
-    if(deltasYears.length){
-      k_delta.textContent = (deltasVals[deltasVals.length-1] >= 0 ? '+' : '') + deltasVals[deltasVals.length-1];
+    if(deltaYears.length){
+      const dv = deltaVals[deltaVals.length-1];
+      k_delta.textContent = (dv>=0?'+':'') + dv;
     }else{
       k_delta.textContent = '–';
     }
@@ -117,24 +123,22 @@
     if(lineChart) lineChart.destroy();
     if(barChart) barChart.destroy();
 
-    lineChart = new Chart(lineCtx, {
-      type:'line',
-      data:{ labels:years, datasets:[{ label:'Deelnemende scholen', data:values }]},
-      options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } } }
-    });
-    barChart = new Chart(barCtx, {
-      type:'bar',
-      data:{ labels:deltasYears, datasets:[{ label:'Δ t.o.v. vorig jaar', data:deltasVals }]},
-      options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } } }
-    });
+    lineChart = new Chart(lineCtx, { type:'line', data:{ labels:years, datasets:[{ label:'Deelnemende scholen', data:values }]},
+      options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } } } });
+    barChart = new Chart(barCtx, { type:'bar', data:{ labels:deltaYears, datasets:[{ label:'Δ t.o.v. vorig jaar', data:deltaVals }]},
+      options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } } } });
   }
 
   function renderKPIs(rows){
-    const names = new Set(rows.map(r=> r.Naam||r.naam||r.School||r.school ).filter(Boolean));
+    const names = new Set(rows.map(r=> r['NAAM SCHOOL']||r.Naam||r.naam||r.School||r.school ).filter(Boolean));
     k_scholen.textContent = names.size;
-    const stab = computeStability(rows, yearKeys);
-    k_altijd.textContent = stab.always;
-    k_repeat3.textContent = stab.repeat3;
+    const always = rows.reduce((acc,r)=> acc + (yearSeasons.every(s=>r['_season__'+s]===true) ? 1 : 0), 0);
+    const repeat3 = rows.reduce((acc,r)=>{
+      const n = yearSeasons.reduce((a,s)=> a + (r['_season__'+s]===true?1:0), 0);
+      return acc + (n>=3 ? 1 : 0);
+    },0);
+    k_altijd.textContent = always;
+    k_repeat3.textContent = repeat3;
   }
 
   function applyFilters(){
@@ -142,9 +146,12 @@
     renderKPIs(filtered);
     refreshCharts(filtered);
     renderTable(filtered);
+    downloadXlsxBtn.disabled = filtered.length===0;
   }
   function resetFilters(){
-    document.getElementById('dynamicFilters').querySelectorAll('select').forEach(s=>s.value='');
+    document.getElementById('dynamicFilters').querySelectorAll('select, input[type=checkbox], input[type=number]').forEach(el=>{
+      if(el.type==='checkbox') el.checked=false; else el.value='';
+    });
     applyFilters();
   }
 
@@ -156,23 +163,12 @@
     const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
     if(!rows.length){ progressText.textContent='Leeg bestand.'; return; }
 
-    yearKeys = [];
-    for(const key of Object.keys(rows[0])){
-      if(isYearHeader(key)) yearKeys.push(toSeasonKey(key));
-    }
-    const normalized = rows.map(r=>{
-      const out = {...r};
-      for(const y of yearKeys){
-        const raw = r[y]!=null ? r[y] : r[String(y).replace('/','-')] ;
-        const b = parseBoolCell(raw);
-        out[y] = (b===true);
-      }
-      return out;
-    });
+    const derived = deriveSeasonsAndFlags(rows);
+    yearSeasons = derived.yearSeasons;
+    allRows = derived.rows;
 
-    allRows = normalized;
-
-    filterPredicate = buildDynamicFilters(allRows, yearKeys);
+    const excluded = new Set(['NAAM SCHOOL','Naam','naam','ADRES','Adres','adres','POSTCODE','Postcode','postcode','PROVINCIE','Provincie','provincie','HUISNUMMER-TOEVOEGING','PLAATSNAAM CORRESPONDENTIEADRES']);
+    filterPredicate = buildDynamicFilters(allRows, yearSeasons, {excludedColumns: excluded});
     applyFilters();
 
     progressText.textContent = 'Gereed.'; progressBar.style.width='100%';
@@ -182,6 +178,7 @@
   clearCacheBtn.addEventListener('click', ()=>{ localStorage.removeItem('geo_cache_schools_v1'); alert('Geocoding-cache geleegd.'); });
   applyFiltersBtn.addEventListener('click', applyFilters);
   resetFiltersBtn.addEventListener('click', resetFilters);
+  downloadXlsxBtn.addEventListener('click', ()=> exportXLSX(filtered, 'dashboard_export.xlsx'));
   </script>
 </body>
 </html>

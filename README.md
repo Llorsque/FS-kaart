@@ -1,22 +1,16 @@
-# Schoolschaatsen – Kaart & Dashboard
-Statische webapp voor Excel → Kaart + Trends. Zet in een GitHub-repo en publiceer via GitHub Pages.
+# Schoolschaatsen – v3 (snellere geocoding + Excel-export)
 
-## Pagina's
-- `map.html` – Kaart met geocoding (Nominatim) en live aantallen per filter + per jaar.
-- `dashboard.html` – Filters, kerncijfers, trendlijn (line) en jaar-op-jaar (bar).
-- `index.html` – Startpagina met links.
+## Wat is nieuw
+- **Keuze geocoder**: *PDOK Locatieserver (NL, sneller)* of *Nominatim (OSM)*.
+- **Throttle instelbaar** (ms) om snelheid te balanceren met fair use.
+- **Excel (XLSX) export**: download je geocodede dataset direct als `.xlsx` (ook CSV mogelijk).
+- **Seizoenen-filters** en **range-filters** blijven actief.
 
-## Excel
-- Herkent alle kolommen automatisch.
-- Jaarkolommen (`2021`, `2022/2023`, `2022-2023`) worden als deelnamekolommen gezien (WAAR/ONWAAR, JA/NEE, TRUE/FALSE, 1/0).
-- Voor geocoding worden `Adres`, `Postcode`, `Plaats` gebruikt (naam voor popup wordt uit `Naam` of `School` gehaald).
+## Gebruik
+1. Open `map.html` → upload Excel → kies geocoder (PDOK/Nominatim) → stel throttle in → geocode.
+2. Download **CSV** of **XLSX** met toegevoegde `lat`/`lon` kolommen.
+3. `dashboard.html` voor analyses, met export van de **gefilterde** set naar Excel.
 
-## Filters
-- Automatisch gegenereerd voor niet-jaar kolommen met ≤ 50 unieke waarden.
+> Tip: laat de **geocoding-cache** staan in dezelfde browser voor snellere herhaalde runs (knop “Cache legen” wist deze).
 
-## Geocoding
-- Publieke Nominatim (fair use ~1 req/sec) met throttling + localStorage cache.
-- CSV-export met toegevoegde `Lat`/`Lon` op de Kaart-pagina.
-
-## GitHub Pages
-Upload alle bestanden en activeer Pages (branch `main`, root). Open `index.html`.
+**NL-only versneller:** PDOK is gericht op Nederlandse adressen en is doorgaans sneller en preciezer voor BAG-adressen. Nominatim is wereldwijd, maar beperkter in snelheid (hou fair use aan).

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Schoolschaatsen – Kaart</title>
+  <title>Schoolschaatsen – Kaart (v3)</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 </head>
@@ -12,13 +12,25 @@
     <aside class="sidebar">
       <header>
         <h1>🗺️ Kaart</h1>
-        <p class="sub">Upload Excel, kies filters, bekijk markers en aantallen.</p>
+        <p class="sub">Upload Excel → geocoding (Nominatim of PDOK) → filters (incl. seizoenen & ranges) → markers + aantallen.</p>
       </header>
       <section class="card controls">
         <div class="row">
           <input type="file" id="fileInput" accept=".xlsx,.xls" />
           <button id="clearCacheBtn" type="button">Cache legen</button>
-          <button id="downloadBtn" type="button" disabled>Download CSV (met Lat/Lon)</button>
+        </div>
+        <div class="row">
+          <label>Geocoder:
+            <select id="geocoderSel">
+              <option value="pdok">PDOK (NL, sneller)</option>
+              <option value="nominatim">Nominatim (OSM)</option>
+            </select>
+          </label>
+          <label>Throttle (ms):
+            <input type="number" id="throttleMs" value="250" min="0" step="50"/>
+          </label>
+          <button id="downloadCsvBtn" type="button" disabled>Download CSV</button>
+          <button id="downloadXlsxBtn" type="button" disabled>Download Excel (XLSX)</button>
         </div>
         <div class="row">
           <div style="width:100%">
@@ -27,7 +39,7 @@
           </div>
         </div>
         <div class="row"><strong>Filters</strong></div>
-        <div id="dynamicFilters" class="row" style="gap:12px;flex-direction:column"></div>
+        <div id="dynamicFilters" class="filters-block"></div>
         <div class="row">
           <button id="applyFiltersBtn" type="button">Filters toepassen</button>
           <button id="resetFiltersBtn" type="button">Reset</button>
@@ -70,11 +82,14 @@
   const map = L.map('map').setView([52.2,5.3],7);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
   const markerGroup = L.layerGroup().addTo(map);
-  let allRows = []; let filtered = []; let yearKeys = []; let filterPredicate = ()=>true;
+  let allRows = []; let filtered = []; let yearSeasons=[]; let filterPredicate = ()=>true;
 
   const fileInput = document.getElementById('fileInput');
   const clearCacheBtn = document.getElementById('clearCacheBtn');
-  const downloadBtn = document.getElementById('downloadBtn');
+  const geocoderSel = document.getElementById('geocoderSel');
+  const throttleMs = document.getElementById('throttleMs');
+  const downloadCsvBtn = document.getElementById('downloadCsvBtn');
+  const downloadXlsxBtn = document.getElementById('downloadXlsxBtn');
   const applyFiltersBtn = document.getElementById('applyFiltersBtn');
   const resetFiltersBtn = document.getElementById('resetFiltersBtn');
   const k_total = document.getElementById('k_total');
@@ -104,7 +119,9 @@
     renderTable(filtered);
   }
   function resetFilters(){
-    document.getElementById('dynamicFilters').querySelectorAll('select').forEach(s=>s.value='');
+    document.getElementById('dynamicFilters').querySelectorAll('select, input[type=checkbox], input[type=number]').forEach(el=>{
+      if(el.type==='checkbox') el.checked=false; else el.value='';
+    });
     applyFilters();
   }
 
@@ -113,10 +130,11 @@
     const geoN = rows.filter(r=>r.lat&&r.lon).length;
     k_geo.textContent = geoN;
     yearPills.innerHTML='';
-    const counts = computeYearCounts(rows, yearKeys);
-    Object.entries(counts).forEach(([y,n])=>{
-      const div = document.createElement('div'); div.className='pill'; div.textContent = `${y}: ${n}`; yearPills.appendChild(div);
-    });
+    for(const s of yearSeasons){
+      const n = rows.reduce((acc,r)=> acc + (r['_season__'+s]===true?1:0), 0);
+      const div = document.createElement('div'); div.className='pill'; div.textContent = `${s}: ${n}`;
+      yearPills.appendChild(div);
+    }
   }
 
   function renderMap(rows){
@@ -125,10 +143,10 @@
     for(const r of rows){
       if(!(r.lat && r.lon)) continue;
       const m = L.marker([r.lat, r.lon]).addTo(markerGroup);
-      const naam = r.Naam || r.naam || r.School || r.school || '';
-      const adres = r.Adres || r.adres || '';
-      const pc = r.Postcode || r.postcode || '';
-      const plaats = r.Plaats || r.plaats || r.Gemeente || r.gemeente || '';
+      const naam = r['NAAM SCHOOL'] || r.Naam || r.naam || r.School || r.school || '';
+      const adres = r.ADRES || r.Adres || r.adres || '';
+      const pc = r.POSTCODE || r.Postcode || r.postcode || '';
+      const plaats = r.PLAATSNAAM || r.Plaats || r.plaats || r.GEMEENTENAAM || r.gemeente || '';
       m.bindPopup(`<strong>${naam}</strong><br>${adres}<br>${pc} ${plaats}`);
       markers.push(m);
     }
@@ -136,6 +154,75 @@
       const grp = L.featureGroup(markers);
       map.fitBounds(grp.getBounds().pad(0.12));
     }
+  }
+
+  // === Geocoders ===
+  async function geocodeNominatim(query){
+    const params = new URLSearchParams({format:'jsonv2',q:query,addressdetails:'0',limit:'1',countrycodes:'nl','accept-language':'nl'});
+    const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
+    const res = await fetch(url,{headers:{'Accept':'application/json'}});
+    if(!res.ok) throw new Error('Nominatim error '+res.status);
+    const json = await res.json();
+    if(Array.isArray(json)&&json.length){ return {lat:parseFloat(json[0].lat), lon:parseFloat(json[0].lon)}; }
+    return {lat:null, lon:null};
+  }
+  async function geocodePDOK(query){
+    // PDOK Locatieserver v3: free endpoint, JSON
+    const params = new URLSearchParams({q:query, wt:'json'});
+    const url = `https://geodata.nationaalgeoregister.nl/locatieserver/v3/free?${params.toString()}`;
+    const res = await fetch(url,{headers:{'Accept':'application/json'}});
+    if(!res.ok) throw new Error('PDOK error '+res.status);
+    const json = await res.json();
+    const doc = json && json.response && json.response.docs && json.response.docs[0];
+    if(doc && doc.centroide_ll){
+      // centroide_ll: "POINT(lon lat)"
+      const m = doc.centroide_ll.match(/POINT\(([-\d\.]+)\s+([\-\d\.]+)\)/);
+      if(m){ return {lat:parseFloat(m[2]), lon:parseFloat(m[1])}; }
+    }
+    return {lat:null, lon:null};
+  }
+
+  async function geocodeRows(rows){
+    const total = rows.length; let done=0; updateProgress(0,total,'Geocoding');
+    const out = [];
+    const cache = JSON.parse(localStorage.getItem('geo_cache_schools_v1')||'{}');
+    const usePDOK = geocoderSel.value==='pdok';
+    const wait = parseInt(throttleMs.value||'250',10);
+
+    for(const r of rows){
+      const adres = r.ADRES||r.Adres||r.adres||'';
+      const pc = r.POSTCODE||r.Postcode||r.postcode||'';
+      const plaats = r.PLAATSNAAM||r.Plaats||r.plaats||r.GEMEENTENAAM||r.gemeente||'';
+      const query = `${adres}, ${pc} ${plaats}, Nederland`;
+      if(cache[query]){
+        out.push({...r, lat:cache[query].lat, lon:cache[query].lon});
+      }else{
+        try{
+          const c = usePDOK ? await geocodePDOK(query) : await geocodeNominatim(query);
+          cache[query]=c; out.push({...r, lat:c.lat, lon:c.lon});
+        }catch(e){
+          console.error('Geocode fout', query, e);
+          out.push({...r, lat:null, lon:null});
+        }
+        if(wait>0){ await new Promise(res=>setTimeout(res, wait)); }
+      }
+      done++; updateProgress(done,total,'Geocoding');
+    }
+    localStorage.setItem('geo_cache_schools_v1', JSON.stringify(cache));
+    return out;
+  }
+
+  function toCSV(rows){
+    const headers = Object.keys(rows[0]||{});
+    const lines = [headers.join(',')];
+    for(const r of rows){
+      const vals = headers.map(h=>{
+        const s = String(r[h]??'');
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+      });
+      lines.push(vals.join(','));
+    }
+    return lines.join('\n');
   }
 
   async function handleFile(file){
@@ -146,55 +233,35 @@
     const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
     if(!rows.length){ progressText.textContent='Leeg bestand.'; return; }
 
-    yearKeys = [];
-    for(const key of Object.keys(rows[0])){
-      if(isYearHeader(key)) yearKeys.push(toSeasonKey(key));
-    }
-    const normalized = rows.map(r=>{
-      const out = {...r};
-      for(const y of yearKeys){
-        const raw = r[y]!=null ? r[y] : r[String(y).replace('/','-')] ;
-        const b = parseBoolCell(raw);
-        out[y] = (b===true);
-      }
-      return out;
-    });
+    const derived = deriveSeasonsAndFlags(rows);
+    yearSeasons = derived.yearSeasons;
+    let enriched = derived.rows;
 
-    const addrBuilder = (r)=>{
-      const adres = r.Adres||r.adres||'';
-      const pc = r.Postcode||r.postcode||'';
-      const plaats = r.Plaats||r.plaats||r.Gemeente||r.gemeente||'';
-      return `${adres}, ${pc} ${plaats}, Nederland`;
-    };
-    const withGeo = await geocodeRows(normalized, addrBuilder);
+    const withGeo = await geocodeRows(enriched);
     allRows = withGeo;
 
-    filterPredicate = buildDynamicFilters(allRows, yearKeys);
+    const excluded = new Set(['NAAM SCHOOL','Naam','naam','ADRES','Adres','adres','POSTCODE','Postcode','postcode','PROVINCIE','Provincie','provincie','HUISNUMMER-TOEVOEGING','PLAATSNAAM CORRESPONDENTIEADRES']);
+    filterPredicate = buildDynamicFilters(allRows, yearSeasons, {excludedColumns: excluded});
     applyFilters();
 
     progressText.textContent = `Gereed. Geocodeerd: ${allRows.filter(r=>r.lat&&r.lon).length}/${allRows.length}`;
     progressBar.style.width='100%';
-    downloadBtn.disabled = false;
+    downloadCsvBtn.disabled = false;
+    downloadXlsxBtn.disabled = false;
   }
 
   fileInput.addEventListener('change', e=>{const f=e.target.files?.[0]; if(f) handleFile(f);});
   clearCacheBtn.addEventListener('click', ()=>{ localStorage.removeItem('geo_cache_schools_v1'); alert('Geocoding-cache geleegd.'); });
   applyFiltersBtn.addEventListener('click', applyFilters);
   resetFiltersBtn.addEventListener('click', resetFilters);
-  downloadBtn.addEventListener('click', ()=>{
-    const headers = Object.keys(allRows[0]||{});
-    const lines = [headers.join(',')];
-    for(const r of allRows){
-      const vals = headers.map(h=>{
-        const s = String(r[h]??'');
-        return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
-      });
-      lines.push(vals.join(','));
-    }
-    const blob = new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'});
+
+  downloadCsvBtn.addEventListener('click', ()=>{
+    const csv = toCSV(allRows);
+    const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href=url; a.download='geocoded_export.csv'; a.click(); URL.revokeObjectURL(url);
   });
+  downloadXlsxBtn.addEventListener('click', ()=> exportXLSX(allRows, 'geocoded_export.xlsx'));
   </script>
 </body>
 </html>
