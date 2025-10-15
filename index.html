@@ -3,50 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Sportclubs Kaart (Excel upload + geocoding)</title>
+  <title>Schoolschaatsen – Start</title>
   <link rel="stylesheet" href="styles.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 </head>
-<body>
-  <header>
-    <h1>Sportclubs Kaart</h1>
-    <p class="sub">Upload een Excel (.xlsx/.xls) met 4 kolommen: <strong>A=Naam</strong>, <strong>B=Adres</strong>, <strong>C=Postcode</strong>, <strong>D=Plaats</strong>. Wij doen gratis geocoding via Nominatim (OpenStreetMap) en plotten de clubs op de kaart.</p>
+<body class="landing">
+  <header class="center">
+    <h1>Schoolschaatsen – Tools</h1>
+    <p>Kies een pagina:</p>
+    <nav class="nav">
+      <a class="btn" href="map.html">🗺️ Kaart + live aantallen</a>
+      <a class="btn" href="dashboard.html">📊 Dashboard & trends</a>
+    </nav>
   </header>
-
-  <section id="controls">
-    <div class="row">
-      <input type="file" id="fileInput" accept=".xlsx,.xls" />
-      <button id="clearCacheBtn" type="button">Cache legen</button>
-      <button id="downloadBtn" type="button" disabled>Download CSV (met coördinaten)</button>
-    </div>
-    <div class="row filters">
-      <label>Filter plaats:
-        <input type="text" id="filterPlaats" placeholder="bv. Heerenveen" />
-      </label>
-      <label>Zoek naam:
-        <input type="text" id="filterNaam" placeholder="bv. VV Oerterp" />
-      </label>
-      <button id="applyFiltersBtn" type="button">Filters toepassen</button>
-      <button id="resetFiltersBtn" type="button">Reset</button>
-    </div>
-    <div class="progress-wrap">
-      <div id="progressText">Nog geen bestand geüpload.</div>
-      <div class="progress">
-        <div id="progressBar"></div>
-      </div>
-    </div>
-    <details class="note">
-      <summary>Let op over Nominatim (gratis geocoding)</summary>
-      <p>Deze demo gebruikt de openbare Nominatim-service. Voor kleine lijsten werkt dit prima, maar er gelden fair-use limieten (typisch &plusmn;1 verzoek per seconde). Grote lijsten kunnen dus wat langer duren. Voor productie of bulk raden we een eigen Nominatim-instance of een betaalde provider aan.</p>
-    </details>
-  </section>
-
-  <section id="mapWrap">
-    <div id="map"></div>
-  </section>
-
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js"></script>
+  <footer class="center muted">Upload je Excel opnieuw op elke pagina om de data te laden.</footer>
 </body>
 </html>

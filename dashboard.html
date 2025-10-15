@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Schoolschaatsen – Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="container">
+    <aside class="sidebar">
+      <header>
+        <h1>📊 Dashboard</h1>
+        <p class="sub">Upload dezelfde Excel en filter voor inzichten en trends.</p>
+      </header>
+      <section class="card controls">
+        <div class="row">
+          <input type="file" id="fileInput" accept=".xlsx,.xls" />
+          <button id="clearCacheBtn" type="button">Cache legen</button>
+        </div>
+        <div class="row">
+          <div style="width:100%">
+            <div id="progressText" class="muted">Nog geen bestand geüpload.</div>
+            <div class="progress"><div id="progressBar" class="progressbar"></div></div>
+          </div>
+        </div>
+        <div class="row"><strong>Filters</strong></div>
+        <div id="dynamicFilters" class="row" style="gap:12px;flex-direction:column"></div>
+        <div class="row">
+          <button id="applyFiltersBtn" type="button">Filters toepassen</button>
+          <button id="resetFiltersBtn" type="button">Reset</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3 style="margin-top:0">Kerncijfers</h3>
+        <div class="kpis">
+          <div class="kpi"><div class="label">Unieke scholen</div><div id="k_scholen" class="n">–</div></div>
+          <div class="kpi"><div class="label">Altijd deelnemer</div><div id="k_altijd" class="n">–</div></div>
+          <div class="kpi"><div class="label">Herhaal (≥3 jaar)</div><div id="k_repeat3" class="n">–</div></div>
+          <div class="kpi"><div class="label">Laatste jaar Δ</div><div id="k_delta" class="n">–</div></div>
+        </div>
+      </section>
+    </aside>
+
+    <main class="main">
+      <div class="grid-2">
+        <div class="card"><canvas id="lineTrend" height="260"></canvas></div>
+        <div class="card"><canvas id="barDelta" height="260"></canvas></div>
+      </div>
+      <div class="card table" style="margin-top:12px">
+        <table id="previewTable">
+          <thead></thead><tbody></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="utils.js"></script>
+  <script>
+  const progressText = document.getElementById('progressText');
+  const progressBar = document.getElementById('progressBar');
+  updateProgress = (c,t,p)=>{
+    const pct = t? Math.round((c/t)*100):0;
+    progressText.textContent = t? `${p}: ${c}/${t} (${pct}%)` : 'Gereed.';
+    progressBar.style.width = pct + '%';
+  };
+
+  let allRows=[]; let filtered=[]; let yearKeys=[]; let filterPredicate = ()=>true;
+  let lineChart=null, barChart=null;
+
+  const fileInput = document.getElementById('fileInput');
+  const clearCacheBtn = document.getElementById('clearCacheBtn');
+  const applyFiltersBtn = document.getElementById('applyFiltersBtn');
+  const resetFiltersBtn = document.getElementById('resetFiltersBtn');
+
+  const k_scholen = document.getElementById('k_scholen');
+  const k_altijd = document.getElementById('k_altijd');
+  const k_repeat3 = document.getElementById('k_repeat3');
+  const k_delta = document.getElementById('k_delta');
+
+  const tblHead = document.querySelector('#previewTable thead');
+  const tblBody = document.querySelector('#previewTable tbody');
+
+  function renderTable(rows){
+    tblHead.innerHTML=''; tblBody.innerHTML='';
+    if(!rows.length) return;
+    const cols = Object.keys(rows[0]);
+    const tr = document.createElement('tr');
+    cols.forEach(c=>{ const th=document.createElement('th'); th.textContent=c; tr.appendChild(th); });
+    tblHead.appendChild(tr);
+    rows.slice(0,100).forEach(r=>{
+      const tr = document.createElement('tr');
+      cols.forEach(c=>{ const td=document.createElement('td'); td.textContent = r[c] ?? ''; tr.appendChild(td); });
+      tblBody.appendChild(tr);
+    });
+  }
+
+  function refreshCharts(rows){
+    const series = computeYearCounts(rows, yearKeys);
+    const years = Object.keys(series);
+    const values = years.map(y=>series[y]);
+    const deltasObj = yoyChanges(series);
+    const deltasYears = years.slice(1);
+    const deltasVals = deltasYears.map(y=>deltasObj[y] ?? 0);
+
+    if(deltasYears.length){
+      k_delta.textContent = (deltasVals[deltasVals.length-1] >= 0 ? '+' : '') + deltasVals[deltasVals.length-1];
+    }else{
+      k_delta.textContent = '–';
+    }
+
+    const lineCtx = document.getElementById('lineTrend').getContext('2d');
+    const barCtx  = document.getElementById('barDelta').getContext('2d');
+    if(lineChart) lineChart.destroy();
+    if(barChart) barChart.destroy();
+
+    lineChart = new Chart(lineCtx, {
+      type:'line',
+      data:{ labels:years, datasets:[{ label:'Deelnemende scholen', data:values }]},
+      options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } } }
+    });
+    barChart = new Chart(barCtx, {
+      type:'bar',
+      data:{ labels:deltasYears, datasets:[{ label:'Δ t.o.v. vorig jaar', data:deltasVals }]},
+      options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } } }
+    });
+  }
+
+  function renderKPIs(rows){
+    const names = new Set(rows.map(r=> r.Naam||r.naam||r.School||r.school ).filter(Boolean));
+    k_scholen.textContent = names.size;
+    const stab = computeStability(rows, yearKeys);
+    k_altijd.textContent = stab.always;
+    k_repeat3.textContent = stab.repeat3;
+  }
+
+  function applyFilters(){
+    filtered = allRows.filter(filterPredicate);
+    renderKPIs(filtered);
+    refreshCharts(filtered);
+    renderTable(filtered);
+  }
+  function resetFilters(){
+    document.getElementById('dynamicFilters').querySelectorAll('select').forEach(s=>s.value='');
+    applyFilters();
+  }
+
+  async function handleFile(file){
+    progressText.textContent = 'Bestand lezen...'; progressBar.style.width='0%';
+    const data = await file.arrayBuffer();
+    const wb = XLSX.read(data,{type:'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+    if(!rows.length){ progressText.textContent='Leeg bestand.'; return; }
+
+    yearKeys = [];
+    for(const key of Object.keys(rows[0])){
+      if(isYearHeader(key)) yearKeys.push(toSeasonKey(key));
+    }
+    const normalized = rows.map(r=>{
+      const out = {...r};
+      for(const y of yearKeys){
+        const raw = r[y]!=null ? r[y] : r[String(y).replace('/','-')] ;
+        const b = parseBoolCell(raw);
+        out[y] = (b===true);
+      }
+      return out;
+    });
+
+    allRows = normalized;
+
+    filterPredicate = buildDynamicFilters(allRows, yearKeys);
+    applyFilters();
+
+    progressText.textContent = 'Gereed.'; progressBar.style.width='100%';
+  }
+
+  fileInput.addEventListener('change', e=>{const f=e.target.files?.[0]; if(f) handleFile(f);});
+  clearCacheBtn.addEventListener('click', ()=>{ localStorage.removeItem('geo_cache_schools_v1'); alert('Geocoding-cache geleegd.'); });
+  applyFiltersBtn.addEventListener('click', applyFilters);
+  resetFiltersBtn.addEventListener('click', resetFilters);
+  </script>
+</body>
+</html>
