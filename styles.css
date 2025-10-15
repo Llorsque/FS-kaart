@@ -1,15 +1,44 @@
-body {
-    font-family: sans-serif;
-    margin: 0;
-    padding: 0;
+:root{
+  --bg:#0f1320;
+  --card:#151a2d;
+  --text:#eaf0ff;
+  --muted:#a8b0c3;
+  --accent:#52E8E8;
 }
-h1 {
-    margin: 10px;
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Inter,Arial;
+  line-height:1.4;
 }
-#filters {
-    padding: 10px;
+header{
+  padding:16px 16px 0;
 }
-#map {
-    width: 100%;
-    height: 90vh;
+h1{margin:0 0 8px;font-size:22px}
+.sub{margin:0;color:var(--muted)}
+#controls{
+  background:var(--card);
+  margin:16px;
+  padding:12px;
+  border-radius:12px;
+  box-shadow:0 10px 30px rgba(0,0,0,.25);
 }
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+input[type="file"], input[type="text"], button{
+  padding:8px 10px;border-radius:10px;border:1px solid #26304d;background:#0e1324;color:var(--text)
+}
+button{cursor:pointer;background:#1a2240}
+button:hover{background:#212945}
+.filters label{display:flex;gap:8px;align-items:center}
+.progress-wrap{margin-top:6px}
+.progress{
+  width:100%;height:10px;background:#0e1324;border-radius:999px;overflow:hidden;margin-top:6px
+}
+#progressBar{height:100%;width:0;background:var(--accent);transition:width .25s ease}
+#mapWrap{height:calc(100vh - 220px);padding:0 16px 16px}
+#map{height:100%;border-radius:12px;overflow:hidden}
+.note{margin-top:8px;color:var(--muted)}
+.leaflet-popup-content-wrapper, .leaflet-popup-tip{background:#0e1324;color:var(--text)}
