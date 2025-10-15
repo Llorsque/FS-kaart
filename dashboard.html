@@ -3,21 +3,31 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Schoolschaatsen – Dashboard (v3)</title>
+  <title>Schoolschaatsen – Dashboard (v5)</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <div class="topbar">
+    <div class="left">
+      <a class="btn btn-small" href="map.html">↔ Naar Kaart</a>
+      <button id="toggleModeBtn" class="btn btn-small btn-ghost">📱 Mobile</button>
+    </div>
+    <div class="right">
+      <a class="btn btn-small btn-ghost" href="index.html">🏠 Start</a>
+    </div>
+  </div>
+
   <div class="container">
     <aside class="sidebar">
       <header>
         <h1>📊 Dashboard</h1>
-        <p class="sub">Upload Excel → filters (incl. seizoenen & ranges) → kerncijfers en trends. Exporteer gefilterde set.</p>
+        <p class="sub">Upload Excel → filters → kerncijfers en trends. Exporteer gefilterde set.</p>
       </header>
       <section class="card controls">
         <div class="row">
           <input type="file" id="fileInput" accept=".xlsx,.xls" />
           <button id="clearCacheBtn" type="button">Cache legen</button>
-          <button id="downloadXlsxBtn" type="button" disabled>Download Excel (filterresultaat)</button>
+          <button id="downloadXlsxBtn" type="button" disabled>Download Excel</button>
         </div>
         <div class="row">
           <div style="width:100%">
@@ -61,6 +71,15 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="utils.js"></script>
   <script>
+  ensureModePopup();
+  const toggleModeBtn = document.getElementById('toggleModeBtn');
+  toggleModeBtn.onclick = ()=>{
+    const current = document.body.classList.contains('mobile') ? 'mobile' : 'desktop';
+    applyMode(current==='mobile' ? 'desktop' : 'mobile');
+    toggleModeBtn.textContent = document.body.classList.contains('mobile') ? '🖥️ Desktop' : '📱 Mobile';
+  };
+  toggleModeBtn.textContent = document.body.classList.contains('mobile') ? '🖥️ Desktop' : '📱 Mobile';
+
   const progressText = document.getElementById('progressText');
   const progressBar = document.getElementById('progressBar');
   updateProgress = (c,t,p)=>{
@@ -174,11 +193,11 @@
     progressText.textContent = 'Gereed.'; progressBar.style.width='100%';
   }
 
-  fileInput.addEventListener('change', e=>{const f=e.target.files?.[0]; if(f) handleFile(f);});
-  clearCacheBtn.addEventListener('click', ()=>{ localStorage.removeItem('geo_cache_schools_v1'); alert('Geocoding-cache geleegd.'); });
-  applyFiltersBtn.addEventListener('click', applyFilters);
-  resetFiltersBtn.addEventListener('click', resetFilters);
-  downloadXlsxBtn.addEventListener('click', ()=> exportXLSX(filtered, 'dashboard_export.xlsx'));
+  document.getElementById('fileInput').addEventListener('change', e=>{const f=e.target.files?.[0]; if(f) handleFile(f);});
+  document.getElementById('clearCacheBtn').addEventListener('click', ()=>{ localStorage.removeItem('geo_cache_v2'); alert('Geocoding-cache geleegd.'); });
+  document.getElementById('applyFiltersBtn').addEventListener('click', applyFilters);
+  document.getElementById('resetFiltersBtn').addEventListener('click', resetFilters);
+  document.getElementById('downloadXlsxBtn').addEventListener('click', ()=> exportXLSX(filtered, 'dashboard_export.xlsx'));
   </script>
 </body>
 </html>

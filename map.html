@@ -3,16 +3,28 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Schoolschaatsen – Kaart (v3)</title>
+  <title>Schoolschaatsen – Kaart (v5)</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
 </head>
 <body>
+  <div class="topbar">
+    <div class="left">
+      <a class="btn btn-small" href="dashboard.html">↔ Naar Dashboard</a>
+      <button id="toggleModeBtn" class="btn btn-small btn-ghost">📱 Mobile</button>
+    </div>
+    <div class="right">
+      <a class="btn btn-small btn-ghost" href="index.html">🏠 Start</a>
+    </div>
+  </div>
+
   <div class="container">
     <aside class="sidebar">
       <header>
         <h1>🗺️ Kaart</h1>
-        <p class="sub">Upload Excel → geocoding (Nominatim of PDOK) → filters (incl. seizoenen & ranges) → markers + aantallen.</p>
+        <p class="sub">Upload Excel → geocoding (met fallback) → filteren → markers + aantallen.</p>
       </header>
       <section class="card controls">
         <div class="row">
@@ -22,15 +34,17 @@
         <div class="row">
           <label>Geocoder:
             <select id="geocoderSel">
-              <option value="pdok">PDOK (NL, sneller)</option>
-              <option value="nominatim">Nominatim (OSM)</option>
+              <option value="pdok_first">PDOK → Nominatim (fallback)</option>
+              <option value="nominatim_first">Nominatim → PDOK (fallback)</option>
+              <option value="pdok_only">Alleen PDOK</option>
+              <option value="nominatim_only">Alleen Nominatim</option>
             </select>
           </label>
           <label>Throttle (ms):
-            <input type="number" id="throttleMs" value="250" min="0" step="50"/>
+            <input type="number" id="throttleMs" value="200" min="0" step="50"/>
           </label>
           <button id="downloadCsvBtn" type="button" disabled>Download CSV</button>
-          <button id="downloadXlsxBtn" type="button" disabled>Download Excel (XLSX)</button>
+          <button id="downloadXlsxBtn" type="button" disabled>Download Excel</button>
         </div>
         <div class="row">
           <div style="width:100%">
@@ -68,9 +82,19 @@
   </div>
 
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="utils.js"></script>
   <script>
+  ensureModePopup();
+  const toggleModeBtn = document.getElementById('toggleModeBtn');
+  toggleModeBtn.onclick = ()=>{
+    const current = document.body.classList.contains('mobile') ? 'mobile' : 'desktop';
+    applyMode(current==='mobile' ? 'desktop' : 'mobile');
+    toggleModeBtn.textContent = document.body.classList.contains('mobile') ? '🖥️ Desktop' : '📱 Mobile';
+  };
+  toggleModeBtn.textContent = document.body.classList.contains('mobile') ? '🖥️ Desktop' : '📱 Mobile';
+
   const progressText = document.getElementById('progressText');
   const progressBar = document.getElementById('progressBar');
   updateProgress = (c,t,p)=>{
@@ -81,7 +105,7 @@
 
   const map = L.map('map').setView([52.2,5.3],7);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
-  const markerGroup = L.layerGroup().addTo(map);
+  const markerGroup = L.markerClusterGroup({ spiderfyOnMaxZoom:true }).addTo(map);
   let allRows = []; let filtered = []; let yearSeasons=[]; let filterPredicate = ()=>true;
 
   const fileInput = document.getElementById('fileInput');
@@ -137,17 +161,21 @@
     }
   }
 
+  function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+  function buildPopup(row){
+    const title = row['NAAM SCHOOL'] || row.Naam || row.naam || row.School || row.school || 'Onbekend';
+    const pairs = Object.entries(row).filter(([k,v])=>!['_leaflet_id'].includes(k)).map(([k,v])=>`<tr><th style="text-align:left;padding-right:8px">${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`).join('');
+    return `<div><strong>${escapeHtml(title)}</strong><br/><table>${pairs}</table></div>`;
+  }
+
   function renderMap(rows){
     markerGroup.clearLayers();
     const markers = [];
     for(const r of rows){
       if(!(r.lat && r.lon)) continue;
-      const m = L.marker([r.lat, r.lon]).addTo(markerGroup);
-      const naam = r['NAAM SCHOOL'] || r.Naam || r.naam || r.School || r.school || '';
-      const adres = r.ADRES || r.Adres || r.adres || '';
-      const pc = r.POSTCODE || r.Postcode || r.postcode || '';
-      const plaats = r.PLAATSNAAM || r.Plaats || r.plaats || r.GEMEENTENAAM || r.gemeente || '';
-      m.bindPopup(`<strong>${naam}</strong><br>${adres}<br>${pc} ${plaats}`);
+      const m = L.marker([r.lat, r.lon]);
+      m.bindPopup(buildPopup(r));
+      markerGroup.addLayer(m);
       markers.push(m);
     }
     if(markers.length){
@@ -156,59 +184,87 @@
     }
   }
 
-  // === Geocoders ===
+  // ===== Robust geocoding with fallback & better query =====
+  function norm(s){ return (s||'').toString().trim(); }
+  function buildAddress(r){
+    const straat = norm(r.ADRES||r.Adres||r.adres);
+    const huisnr = norm(r['HUISNUMMER']||r['Huisnummer']||r['huisnummer']||'');
+    const toevoeg = norm(r['HUISNUMMER-TOEVOEGING']||r['Huisnummer-toevoeging']||r['huisnummer-toevoeging']||'');
+    const straatFull = [straat, [huisnr, toevoeg].filter(Boolean).join('')].filter(Boolean).join(' ');
+    let pc = norm(r.POSTCODE||r.Postcode||r.postcode).replace(/\s+/g,'');
+    if(pc && pc.length===6){ pc = pc.slice(0,4)+' '+pc.slice(4); }
+    const plaats = norm(r.PLAATSNAAM||r.Plaats||r.plaats||r.GEMEENTENAAM||r.gemeente);
+    const prov = norm(r.PROVINCIE||r.Provincie||r.provincie);
+    return [straatFull, pc, plaats, prov, 'Nederland'].filter(Boolean).join(', ');
+  }
+  function cacheGet(key){ try{ return JSON.parse(localStorage.getItem('geo_cache_v2')||'{}')[key]||null; }catch{ return null; } }
+  function cacheSet(key,val){ try{ const c = JSON.parse(localStorage.getItem('geo_cache_v2')||'{}'); c[key]=val; localStorage.setItem('geo_cache_v2', JSON.stringify(c)); }catch{} }
   async function geocodeNominatim(query){
     const params = new URLSearchParams({format:'jsonv2',q:query,addressdetails:'0',limit:'1',countrycodes:'nl','accept-language':'nl'});
     const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
     const res = await fetch(url,{headers:{'Accept':'application/json'}});
-    if(!res.ok) throw new Error('Nominatim error '+res.status);
+    if(!res.ok) throw new Error('Nominatim '+res.status);
     const json = await res.json();
     if(Array.isArray(json)&&json.length){ return {lat:parseFloat(json[0].lat), lon:parseFloat(json[0].lon)}; }
     return {lat:null, lon:null};
   }
   async function geocodePDOK(query){
-    // PDOK Locatieserver v3: free endpoint, JSON
     const params = new URLSearchParams({q:query, wt:'json'});
     const url = `https://geodata.nationaalgeoregister.nl/locatieserver/v3/free?${params.toString()}`;
     const res = await fetch(url,{headers:{'Accept':'application/json'}});
-    if(!res.ok) throw new Error('PDOK error '+res.status);
+    if(!res.ok) throw new Error('PDOK '+res.status);
     const json = await res.json();
     const doc = json && json.response && json.response.docs && json.response.docs[0];
     if(doc && doc.centroide_ll){
-      // centroide_ll: "POINT(lon lat)"
       const m = doc.centroide_ll.match(/POINT\(([-\d\.]+)\s+([\-\d\.]+)\)/);
       if(m){ return {lat:parseFloat(m[2]), lon:parseFloat(m[1])}; }
     }
     return {lat:null, lon:null};
   }
+  async function geocodeWithFallback(query, strategy){
+    if(strategy==='pdok_only') return geocodePDOK(query);
+    if(strategy==='nominatim_only') return geocodeNominatim(query);
+    if(strategy==='pdok_first'){
+      const a = await geocodePDOK(query); if(a.lat&&a.lon) return a; return geocodeNominatim(query);
+    }
+    if(strategy==='nominatim_first'){
+      const a = await geocodeNominatim(query); if(a.lat&&a.lon) return a; return geocodePDOK(query);
+    }
+    return geocodePDOK(query);
+  }
+
+  const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
 
   async function geocodeRows(rows){
     const total = rows.length; let done=0; updateProgress(0,total,'Geocoding');
     const out = [];
-    const cache = JSON.parse(localStorage.getItem('geo_cache_schools_v1')||'{}');
-    const usePDOK = geocoderSel.value==='pdok';
-    const wait = parseInt(throttleMs.value||'250',10);
+    const strategy = geocoderSel.value;
+    const wait = parseInt(throttleMs.value||'200',10);
 
     for(const r of rows){
-      const adres = r.ADRES||r.Adres||r.adres||'';
-      const pc = r.POSTCODE||r.Postcode||r.postcode||'';
-      const plaats = r.PLAATSNAAM||r.Plaats||r.plaats||r.GEMEENTENAAM||r.gemeente||'';
-      const query = `${adres}, ${pc} ${plaats}, Nederland`;
-      if(cache[query]){
-        out.push({...r, lat:cache[query].lat, lon:cache[query].lon});
-      }else{
+      const query = buildAddress(r);
+      if(!query || query === ', Nederland'){
+        out.push({...r, lat:null, lon:null}); done++; updateProgress(done,total,'Geocoding'); continue;
+      }
+      const key = query.toLowerCase();
+      let loc = cacheGet(key);
+      if(!loc){
         try{
-          const c = usePDOK ? await geocodePDOK(query) : await geocodeNominatim(query);
-          cache[query]=c; out.push({...r, lat:c.lat, lon:c.lon});
+          loc = await geocodeWithFallback(query, strategy);
         }catch(e){
           console.error('Geocode fout', query, e);
-          out.push({...r, lat:null, lon:null});
+          // fallback on city+postcode only
+          const pc = (r.POSTCODE||r.postcode||'').toString();
+          const plaats = (r.PLAATSNAAM||r.plaats||r.GEMEENTENAAM||'').toString();
+          const q2 = [pc, plaats, 'Nederland'].filter(Boolean).join(', ');
+          try{ loc = await geocodeWithFallback(q2, strategy); }catch{ loc = {lat:null, lon:null}; }
         }
-        if(wait>0){ await new Promise(res=>setTimeout(res, wait)); }
+        cacheSet(key, loc);
+        if(wait>0) await sleep(wait);
       }
+      out.push({...r, lat:loc.lat, lon:loc.lon});
       done++; updateProgress(done,total,'Geocoding');
     }
-    localStorage.setItem('geo_cache_schools_v1', JSON.stringify(cache));
     return out;
   }
 
@@ -223,6 +279,11 @@
       lines.push(vals.join(','));
     }
     return lines.join('\n');
+  }
+
+  function buildFilters(rows){
+    const excluded = new Set(['NAAM SCHOOL','Naam','naam','ADRES','Adres','adres','POSTCODE','Postcode','postcode','PROVINCIE','Provincie','provincie','HUISNUMMER-TOEVOEGING','PLAATSNAAM CORRESPONDENTIEADRES']);
+    return buildDynamicFilters(rows, yearSeasons, {excludedColumns: excluded});
   }
 
   async function handleFile(file){
@@ -240,8 +301,7 @@
     const withGeo = await geocodeRows(enriched);
     allRows = withGeo;
 
-    const excluded = new Set(['NAAM SCHOOL','Naam','naam','ADRES','Adres','adres','POSTCODE','Postcode','postcode','PROVINCIE','Provincie','provincie','HUISNUMMER-TOEVOEGING','PLAATSNAAM CORRESPONDENTIEADRES']);
-    filterPredicate = buildDynamicFilters(allRows, yearSeasons, {excludedColumns: excluded});
+    filterPredicate = buildFilters(allRows);
     applyFilters();
 
     progressText.textContent = `Gereed. Geocodeerd: ${allRows.filter(r=>r.lat&&r.lon).length}/${allRows.length}`;
@@ -250,10 +310,10 @@
     downloadXlsxBtn.disabled = false;
   }
 
-  fileInput.addEventListener('change', e=>{const f=e.target.files?.[0]; if(f) handleFile(f);});
-  clearCacheBtn.addEventListener('click', ()=>{ localStorage.removeItem('geo_cache_schools_v1'); alert('Geocoding-cache geleegd.'); });
-  applyFiltersBtn.addEventListener('click', applyFilters);
-  resetFiltersBtn.addEventListener('click', resetFilters);
+  document.getElementById('fileInput').addEventListener('change', e=>{const f=e.target.files?.[0]; if(f) handleFile(f);});
+  document.getElementById('clearCacheBtn').addEventListener('click', ()=>{ localStorage.removeItem('geo_cache_v2'); alert('Geocoding-cache geleegd.'); });
+  document.getElementById('applyFiltersBtn').addEventListener('click', applyFilters);
+  document.getElementById('resetFiltersBtn').addEventListener('click', resetFilters);
 
   downloadCsvBtn.addEventListener('click', ()=>{
     const csv = toCSV(allRows);

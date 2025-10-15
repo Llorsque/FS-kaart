@@ -1,3 +1,4 @@
+// ===== Helpers =====
 function normalizeHeader(v){ return (v??'').toString().trim(); }
 function slugId(s){ return normalizeHeader(s).toLowerCase().replace(/[^a-z0-9]+/g,'_'); }
 function parseBoolCell(val){
@@ -20,8 +21,30 @@ function extractSeasonKey(text){
   if(y){ return y[1]; }
   return null;
 }
+// Mode
+const MODE_KEY = 'ss_mode_v1';
+function applyMode(mode){ if(mode==='mobile'){ document.body.classList.add('mobile'); } else { document.body.classList.remove('mobile'); } localStorage.setItem(MODE_KEY, mode); }
+function ensureModePopup(){
+  const current = localStorage.getItem(MODE_KEY);
+  if(current==='desktop' || current==='mobile'){ applyMode(current); return; }
+  const backdrop = document.createElement('div'); backdrop.className='modal-backdrop';
+  const modal = document.createElement('div'); modal.className='modal';
+  const h = document.createElement('h3'); h.textContent='Kies je weergave';
+  const p = document.createElement('p'); p.textContent='Open de module in Desktop- of Mobile-weergave. Je keuze wordt onthouden.';
+  const actions = document.createElement('div'); actions.className='actions';
+  const bDesk = document.createElement('button'); bDesk.className='btn'; bDesk.textContent='Desktop';
+  const bMob = document.createElement('button'); bMob.className='btn btn-ghost'; bMob.textContent='Mobile';
+  actions.appendChild(bMob); actions.appendChild(bDesk);
+  modal.appendChild(h); modal.appendChild(p); modal.appendChild(actions);
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  bDesk.onclick=()=>{ applyMode('desktop'); document.body.removeChild(backdrop); };
+  bMob.onclick=()=>{ applyMode('mobile'); document.body.removeChild(backdrop); };
+}
+// Progress hook
 let updateProgress = (c,t,p)=>{};
 
+// ===== Filters =====
 function buildDynamicFilters(data, yearSeasons, options={}){
   const excluded = new Set(options.excludedColumns||[]);
   const container = document.getElementById('dynamicFilters');
@@ -34,6 +57,7 @@ function buildDynamicFilters(data, yearSeasons, options={}){
     .filter(k=>!excluded.has(k))
     .filter(k=>!k.startsWith('_season__') && !['_lat','_lon','lat','lon'].includes(k));
 
+  // Categorical dropdowns
   for(const col of cols){
     const values = Array.from(new Set(data.map(r=>(r[col]??'').toString().trim()).filter(v=>v!=='')));
     const allNumeric = values.every(v=>!isNaN(parseFloat(v.replace(',','.'))));
@@ -47,6 +71,7 @@ function buildDynamicFilters(data, yearSeasons, options={}){
     }
   }
 
+  // Seasons OR checkboxes
   const seasonBox = document.createElement('div'); seasonBox.className='card';
   const seasonTitle = document.createElement('h4'); seasonTitle.textContent='Seizoenen (deelname/aangemeld)'; seasonBox.appendChild(seasonTitle);
   const seasonWrap = document.createElement('div'); seasonWrap.className='inline';
@@ -60,10 +85,11 @@ function buildDynamicFilters(data, yearSeasons, options={}){
     seasonWrap.appendChild(lab);
     seasonChecks[s]=cb;
   }
-  const hint = document.createElement('div'); hint.className='small'; hint.textContent='OR-filter: toon rijen die in ≥1 gekozen seizoen deelnamen/aangemeld zijn.';
+  const hint = document.createElement('div'); hint.className='small'; hint.textContent='OR-filter: toont rijen die in ≥1 gekozen seizoen deelnamen/aangemeld zijn.';
   seasonBox.appendChild(seasonWrap); seasonBox.appendChild(hint);
   container.appendChild(seasonBox);
 
+  // Numeric range filters
   const numericBox = document.createElement('div'); numericBox.className='card';
   const numTitle = document.createElement('h4'); numTitle.textContent='Range-filters (min/max)'; numericBox.appendChild(numTitle);
   const numericWrap = document.createElement('div'); numericWrap.className='filters-block';
@@ -105,6 +131,7 @@ function buildDynamicFilters(data, yearSeasons, options={}){
   };
 }
 
+// Seasons + flags
 function deriveSeasonsAndFlags(rows){
   if(!rows.length) return {yearSeasons:[], rows};
   const headers = Object.keys(rows[0]);
@@ -131,26 +158,13 @@ function deriveSeasonsAndFlags(rows){
   return {yearSeasons: Array.from(seasons).sort((a,b)=>parseInt(a)-parseInt(b)), rows: enriched};
 }
 
-const MODE_KEY = 'ss_mode_v1';
-function applyMode(mode){
-  if(mode==='mobile'){ document.body.classList.add('mobile'); }
-  else{ document.body.classList.remove('mobile'); }
-  localStorage.setItem(MODE_KEY, mode);
-}
-function ensureModePopup(){
-  const current = localStorage.getItem(MODE_KEY);
-  if(current==='desktop' || current==='mobile'){ applyMode(current); return; }
-  const backdrop = document.createElement('div'); backdrop.className='modal-backdrop';
-  const modal = document.createElement('div'); modal.className='modal';
-  const h = document.createElement('h3'); h.textContent='Kies je weergave';
-  const p = document.createElement('p'); p.textContent='Open de module in Desktop- of Mobile-weergave. Je keuze wordt onthouden.';
-  const actions = document.createElement('div'); actions.className='actions';
-  const bDesk = document.createElement('button'); bDesk.className='btn'; bDesk.textContent='Desktop';
-  const bMob = document.createElement('button'); bMob.className='btn btn-ghost'; bMob.textContent='Mobile';
-  actions.appendChild(bMob); actions.appendChild(bDesk);
-  modal.appendChild(h); modal.appendChild(p); modal.appendChild(actions);
-  backdrop.appendChild(modal);
-  document.body.appendChild(backdrop);
-  bDesk.onclick=()=>{ applyMode('desktop'); document.body.removeChild(backdrop); };
-  bMob.onclick=()=>{ applyMode('mobile'); document.body.removeChild(backdrop); };
+// Export
+function exportXLSX(rows, filename='export.xlsx'){
+  const headers = Object.keys(rows[0]||{});
+  const aoa = [headers];
+  for(const r of rows){ aoa.push(headers.map(h=> r[h] ?? '')); }
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Data');
+  XLSX.writeFile(wb, filename);
 }
